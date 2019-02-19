@@ -2,7 +2,7 @@
 Param(
   [string]$DatabaseUpgradeScriptsPath = "",
   [string]$MySqlDllFullPath = "",   
-  [switch]$DropDatabase = $true,
+  [switch]$DropDatabase = $false,
   [switch]$CreateDatabase = $true,
   [string]$versionDbTableName = "VersionForDb",
   [string]$DatabaseServerName = "dk-mysql-svr-dr.mysql.database.azure.com",
@@ -26,45 +26,49 @@ Write-Output "DatabasePassword: $DatabasePassword"
 [void][system.reflection.Assembly]::LoadFrom("$MySqlDllFullPath")
 
 $ConnectionStringWithDb = "server=" + $DatabaseServerName + ";port=$DatabasePort;uid=" + $DatabaseLogin + ";pwd=" + $DatabasePassword + ";database="+$DatabaseName
-$ConnectionStrNODb = "server=" + $DatabaseServerName + ";port=$DatabasePort;uid=" + $DatabaseLogin + ";pwd=" + $DatabasePassword
+$ConnectionStrNoDb = "server=" + $DatabaseServerName + ";port=$DatabasePort;uid=" + $DatabaseLogin + ";pwd=" + $DatabasePassword
 
-function DoDataBaseWork
+function DropAndCreateDb
 {
     Try
     {
-        $ConnectionSys = New-Object MySql.Data.MySqlClient.MySqlConnection($ConnectionStrNODb)
+        $ConnectionSys = New-Object MySql.Data.MySqlClient.MySqlConnection($ConnectionStrNoDb)
         $ConnectionSys.Open()
 
         if ($DropDatabase)
         {
             $dropCommand = New-Object MySql.Data.MySqlClient.MySqlCommand("DROP DATABASE IF EXISTS $DatabaseName", $ConnectionSys)
+            Write-Host "Dropping DB: $DatabaseName ..."
             $dropCommand.ExecuteNonQuery()
             Write-Host "Dropping DB: $DatabaseName complete"
         }
 
-        if($CreateDatabase){
+        if($CreateDatabase) {
             $GetDbCommand = New-Object MySql.Data.MySqlClient.MySqlCommand("SHOW DATABASES", $ConnectionSys)
             $DataAdapterDb = New-Object MySql.Data.MySqlClient.MySqlDataAdapter($GetDbCommand)
             $DataSetDb = New-Object System.Data.DataSet
-            $RecordCountDb = $dataAdapterDb.Fill($DataSetDb, "data")
+            $dataAdapterDb.Fill($DataSetDb, "data")
             $DataSetDb.Tables[0]
 
-            $DbDoesExist="No"
+            $DbDoesExist=$false
             for($i=0;$i -lt $DataSetDb.Tables[0].Rows.Count; $i++) {
                 if($($DataSetDb.Tables[0].Rows[$i][0]) -eq "$DatabaseName")
                 {
-                    $DbDoesExist="Yes"
+                    $DbDoesExist=$true
                 }
             }
         
-            if($DbDoesExist -eq "No")
+            if($DbDoesExist -eq $false)
             {
                 $createCommand = New-Object MySql.Data.MySqlClient.MySqlCommand("CREATE DATABASE $DatabaseName;", $ConnectionSys)
+                Write-Host "Creating DB: $DatabaseName ..."
                 $createCommand.ExecuteNonQuery()
                 Write-Host "Creating DB: $DatabaseName complete"
 
                 #Now lets create the version table
-                #RunNonQuery "CREATE TABLE $versionDbTableName (id serial PRIMARY KEY, name VARCHAR(200));" "Creating VersionTable"
+                Write-Host "Creating Version Table: $versionDbTableName ..."
+                RunNonQuery "CREATE TABLE $versionDbTableName (id serial PRIMARY KEY, name VARCHAR(200));" "Creating VersionTable"
+                Write-Host "Creating Version Table: $versionDbTableName complete"
             }
             else
             {
@@ -77,7 +81,7 @@ function DoDataBaseWork
     Catch [System.Exception]
     {
             Write-Error $_.Exception.Message
-            Break;
+            Exit 1
     }
     Finally {
         $ConnectionSys.Close()
@@ -88,21 +92,21 @@ function DoDataBaseWork
 
 function RunNonQuery
 {
-    param([string]$SqlcommandText, [string]$ScriptName)
+    param([string]$SqlCommandText, [string]$ScriptName)
 
     Try {
         $Connection = New-Object MySql.Data.MySqlClient.MySqlConnection($ConnectionStringWithDb)
         $Connection.Open()
 
-        $createCommand = New-Object MySql.Data.MySqlClient.MySqlCommand($SqlcommandText, $Connection)
+        $createCommand = New-Object MySql.Data.MySqlClient.MySqlCommand($SqlCommandText, $Connection)
         $createCommand.ExecuteNonQuery()
-        Write-Host "Scritp: $ScriptName complete"
+        Write-Host "Script: $ScriptName complete"
 
     }
     Catch [System.Exception]
     {
         Write-Error $_.Exception.Message
-        Break;
+        Exit 1
     }
     Finally {
         $Connection.Close()
@@ -119,21 +123,21 @@ function RunExecuteScalar
 
         $createCommand = New-Object MySql.Data.MySqlClient.MySqlCommand($SqlcommandText, $Connection)
         $scalarValue = $createCommand.ExecuteScalar()
-        Write-Host "Scritp complete with Scalar value: $scalarValue"
+        Write-Host "Script complete with scalar value: $scalarValue"
         return $scalarValue
 
     }
     Catch [System.Exception]
     {
         Write-Error $_.Exception.Message
-        Break;
+        Exit 1
     }
     Finally {
         $Connection.Close()
     }
 }
 
-function VerifyOrCreatVersionTable
+function VerifyVersionTable
 {
     Try {
         $sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = '" + $DatabaseName + "' AND table_name = '" + $versionDbTableName + "';"
@@ -141,14 +145,15 @@ function VerifyOrCreatVersionTable
 
         if(!$tableName)
         {
-            RunNonQuery "CREATE TABLE $versionDbTableName (id serial PRIMARY KEY, name VARCHAR(200));" "Creating VersionTable"
+            Write-Error "Version Table not found - database in unknown state"
+            Exit 1
         }
 
-        Write-Host $tableName
+        Write-Host "Version table found: $tableName"
     }
     Catch {
             Write-Error $_.Exception.Message
-            Break;
+            Exit 1
         }
     Finally {
     }
@@ -156,7 +161,6 @@ function VerifyOrCreatVersionTable
 
 function GetVersionTableRows
 {
-
     Try {
         $Connection = New-Object MySql.Data.MySqlClient.MySqlConnection($ConnectionStringWithDb)
         $Connection.Open()
@@ -165,7 +169,7 @@ function GetVersionTableRows
         $Command = New-Object MySql.Data.MySqlClient.MySqlCommand($Query, $Connection)
         $DataAdapter = New-Object MySql.Data.MySqlClient.MySqlDataAdapter($Command)
         $DataSet = New-Object System.Data.DataSet
-        $RecordCount = $dataAdapter.Fill($dataSet, "data")
+        $dataAdapter.Fill($dataSet, "data")
         
         if($DataSet.Tables[0].Rows.Count -gt 0)
         {
@@ -186,8 +190,7 @@ function GetVersionTableRows
     }
     Catch {
         Write-Error $_.Exception.Message
-        Break;
-        return $null
+        Exit 1
     }
     Finally {
         $Connection.Close()
@@ -228,17 +231,16 @@ function GetScriptFiles
     }
 }
 
-function RunAllWOrk
+function RunAllWork
 {
     Try {
-        #Run Database deletion/creation if neccessary work and appropiate flags are set.
-        $datatBaseWork = DoDataBaseWork
-        if($datatBaseWork -eq $false){
-            Write-Host "Database work failed. We need to get out of here."
-        }
+        # Scenario 1 - DB doesn't exist - We should run CreateDB.sql to create it, then create the version table with 1 row
+        # Scenario 2 - DB exists, no version table - we should error
+        # Scenario 3 - DB exists, version table exists - run the missing scripts, update version table
 
-        #Verify or create the database verision table
-        VerifyOrCreatVersionTable
+        # Run Database deletion/creation if neccessary work and appropiate flags are set.
+        DropAndCreateDb
+        VerifyVersionTable
 
         #Get the list of database Scripts files from database folder location
         $ScriptsFilesForSql = GetScriptFiles
@@ -250,13 +252,13 @@ function RunAllWOrk
             return
         }
           
-        Write-Host "WE database files in folder $DatabaseUpgradeScriptsPath! process will continue"
+        Write-Host "We have database files in folder $DatabaseUpgradeScriptsPath! process will continue"
 
         #Get Array of the scripts database values
         $ScriptsInDB = GetVersionTableRows
 
         #Lets diff the 2 arrays. We should get back the files in the folder location not in db
-        $filesNotInDb = $ScriptsFilesForSql | Where {$ScriptsInDB -NotContains $_}
+        $filesNotInDb = $ScriptsFilesForSql | Where-Object {$ScriptsInDB -NotContains $_}
 
         if($filesNotInDb -eq $null)
         {
@@ -287,7 +289,7 @@ function RunAllWOrk
     }
     Catch {
         Write-Error $_.Exception.Message
-        Break;
+        Exit 1
     }
     Finally {
   
@@ -295,4 +297,4 @@ function RunAllWOrk
 }
 
 #Entry point for running the script
-RunAllWOrk
+RunAllWork
