@@ -7,6 +7,7 @@ Param(
   [string]$versionDbTableName = "VersionForDb",
   [string]$DatabaseServerName = "dk-mysql-svr-dr.mysql.database.azure.com",
   [string]$DatabaseName = "testdb",
+  [string]$DatabasePort = "3306",
   [string]$DatabaseLogin = "",
   [string]$DatabasePassword = ""
 )
@@ -18,13 +19,14 @@ Write-Output "CreateDatabase: $CreateDatabase"
 Write-Output "versionDbTableName: $versionDbTableName"
 Write-Output "DatabaseServerName: $DatabaseServerName"
 Write-Output "DatabaseName: $DatabaseName"
+Write-Output "DatabasePort: $DatabasePort"
 Write-Output "DatabaseLogin: $DatabaseLogin"
 Write-Output "DatabasePassword: $DatabasePassword"
 
 [void][system.reflection.Assembly]::LoadFrom("$MySqlDllFullPath")
 
-$ConnectionStringWithDb = "server=" + $DatabaseServerName + ";port=3306;uid=" + $DatabaseLogin + ";pwd=" + $DatabasePassword + ";database="+$DatabaseName
-$ConnectionStrNODb = "server=" + $DatabaseServerName + ";port=3306;uid=" + $DatabaseLogin + ";pwd=" + $DatabasePassword
+$ConnectionStringWithDb = "server=" + $DatabaseServerName + ";port=$DatabasePort;uid=" + $DatabaseLogin + ";pwd=" + $DatabasePassword + ";database="+$DatabaseName
+$ConnectionStrNODb = "server=" + $DatabaseServerName + ";port=$DatabasePort;uid=" + $DatabaseLogin + ";pwd=" + $DatabasePassword
 
 function DoDataBaseWork
 {
