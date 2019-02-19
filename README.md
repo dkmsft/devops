@@ -1,3 +1,3 @@
 ��# devops
 
-Random Repository that I am filling with scripts along my DevOps journey
+Random Repository filled with scripts on implementing DevOps
